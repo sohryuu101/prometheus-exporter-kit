@@ -1,0 +1,19 @@
+[Unit]
+Description=MSSQL Exporter (burningalchemist/sql_exporter v0.24.0)
+After=network.target
+
+[Service]
+User=mssql_exporter
+Group=mssql_exporter
+Type=simple
+ExecStart=/usr/local/bin/mssql_exporter -config.file /etc/mssql_exporter/config.yml
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+# ${STATION_NAME} PLC reachability via the blackbox_exporter on ${TARGET_IP_MAIN}.
+job_name: soc-${STATION_NAME}-blackbox-icmp
+scrape_interval: 30s
+scrape_timeout: 15s
+metrics_path: /probe
+params:
+  module: [icmp]
+static_configs:
+  - targets:
+${PROBE_TARGET_LIST}
+relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: ${TARGET_IP_MAIN}:9115
+  - target_label: segment
+    replacement: ${SEGMENT}
+  - target_label: cid
+    replacement: dc1
+  - target_label: station_name
+    replacement: ${STATION_NAME}
+  - target_label: station_id
+    replacement: ${STATION_ID}
+  - target_label: project
+    replacement: myproject

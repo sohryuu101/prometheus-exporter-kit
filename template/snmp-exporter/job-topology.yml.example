@@ -1,0 +1,24 @@
+# Topology data scrape job. Copy to the site's job directory, set job_name, and
+# copy `static_configs` and `relabel_configs` from the site's baseline SNMP job so
+# the series carry the same labels (instance, station_name, ...) and join on them.
+#
+# Verify module coverage with topology_check.py.
+#
+# scrape_interval MUST be set explicitly. Without it the platform default of 15 s
+# applies, the timeout is clamped to the interval, and a core switch (which takes
+# several seconds per module) fails most scrapes. 60 s is the longest interval the
+# platform accepts; one module after another takes about 10 s on a core switch.
+# Do not scrape modules in parallel (--snmp.module-concurrency): the switch answers
+# one request at a time and parallel requests only queue.
+job_name: <display_name>
+scrape_interval: 60s
+scrape_timeout: 45s
+metrics_path: /snmp
+params:
+  # lldp_mib, q_bridge_mib and bridge_mib are read by the topology tool and are
+  # vendor-neutral. The hh3c_* modules are health data for H3C switches only; drop
+  # them at a site without H3C, or replace them with that vendor's MIB modules.
+  module: [lldp_mib, q_bridge_mib, bridge_mib, hh3c_transceiver_info_mib, hh3c_entity_ext_mib, hh3c_lsw_devm_mib]
+  auth: [public_v2]
+# static_configs:   <- copy from the site's baseline SNMP job
+# relabel_configs:  <- copy from the site's baseline SNMP job

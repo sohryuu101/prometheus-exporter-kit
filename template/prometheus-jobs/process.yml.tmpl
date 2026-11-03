@@ -1,0 +1,32 @@
+# ${STATION_NAME} WCS host process-exporter scrape job.
+job_name: soc-${STATION_NAME}-process
+scrape_interval: 30s
+scrape_timeout: 15s
+metrics_path: /metrics
+static_configs:
+  - targets:
+      - ${TARGET_IP_MAIN}:9256
+    labels:
+      role: main
+  - targets:
+      - ${TARGET_IP_BACKUP}:9256
+    labels:
+      role: backup
+relabel_configs:
+  - source_labels: [__address__]
+    target_label: target_ip
+    regex: '([^:]+):.*'
+    replacement: '${1}'
+  - target_label: segment
+    replacement: ${SEGMENT}
+  - source_labels: [segment, target_ip]
+    target_label: instance
+    separator: '-'
+  - target_label: cid
+    replacement: dc1
+  - target_label: station_name
+    replacement: ${STATION_NAME}
+  - target_label: station_id
+    replacement: ${STATION_ID}
+  - target_label: project
+    replacement: myproject

@@ -1,0 +1,214 @@
+# Extra modules for a site whose snmp_exporter is live and must not be edited:
+# load this file NEXT TO the existing snmp.yml with a second --config.file. The
+# exporter refuses to start when a module is defined twice, so check first with
+#   topology_check.py conflicts --live <the site's snmp.yml> snmp-topology-huawei.yml
+# The module blocks are copied byte for byte from snmp.yml in this directory.
+# There are no auths here: the ones in the live file are used.
+modules:
+  lldp_mib:
+    get:
+    - 1.0.8802.1.1.2.1.3.2.0
+    - 1.0.8802.1.1.2.1.3.3.0
+    max_repetitions: 60
+    metrics:
+    - help: LLDP chassis ID of this device - 1.0.8802.1.1.2.1.3.2
+      name: lldpLocChassisId
+      oid: 1.0.8802.1.1.2.1.3.2
+      type: OctetString
+    - help: One series per local LLDP port; the value is the port ID subtype (5 = interface name) and the labels give the port ID. lldpLocPortNum is the number neighbours are reported against - the ifIndex on H3C, the bridge port number on Huawei - 1.0.8802.1.1.2.1.3.7.1.2
+      indexes:
+      - labelname: lldpLocPortNum
+        type: gauge
+      lookups:
+      - labelname: lldpLocPortId
+        labels:
+        - lldpLocPortNum
+        oid: 1.0.8802.1.1.2.1.3.7.1.3
+        type: OctetString
+      name: lldpLocPortIdSubtype
+      oid: 1.0.8802.1.1.2.1.3.7.1.2
+      type: gauge
+    - help: LLDP system name of this device - 1.0.8802.1.1.2.1.3.3
+      name: lldpLocSysName
+      oid: 1.0.8802.1.1.2.1.3.3
+      type: DisplayString
+    - help: One series per LLDP neighbour; the labels carry its details. The value is the chassis ID subtype (4 = MAC address) - 1.0.8802.1.1.2.1.4.1.1.4
+      indexes:
+      - labelname: lldpRemTimeMark
+        type: gauge
+      - labelname: lldpRemLocalPortNum
+        type: gauge
+      - labelname: lldpRemIndex
+        type: gauge
+      lookups:
+      - labelname: lldpRemChassisId
+        labels:
+        - lldpRemTimeMark
+        - lldpRemLocalPortNum
+        - lldpRemIndex
+        oid: 1.0.8802.1.1.2.1.4.1.1.5
+        type: OctetString
+      - labelname: lldpRemPortIdSubtype
+        labels:
+        - lldpRemTimeMark
+        - lldpRemLocalPortNum
+        - lldpRemIndex
+        oid: 1.0.8802.1.1.2.1.4.1.1.6
+        type: gauge
+      - labelname: lldpRemPortId
+        labels:
+        - lldpRemTimeMark
+        - lldpRemLocalPortNum
+        - lldpRemIndex
+        oid: 1.0.8802.1.1.2.1.4.1.1.7
+        type: OctetString
+      - labelname: lldpRemSysName
+        labels:
+        - lldpRemTimeMark
+        - lldpRemLocalPortNum
+        - lldpRemIndex
+        oid: 1.0.8802.1.1.2.1.4.1.1.9
+        type: DisplayString
+      - labelname: lldpRemTimeMark
+        labels: []
+      name: lldpRemChassisIdSubtype
+      oid: 1.0.8802.1.1.2.1.4.1.1.4
+      type: gauge
+    retries: 1
+    timeout: 5s
+    walk:
+    - 1.0.8802.1.1.2.1.3.7.1.2
+    - 1.0.8802.1.1.2.1.3.7.1.3
+    - 1.0.8802.1.1.2.1.4.1.1.4
+    - 1.0.8802.1.1.2.1.4.1.1.5
+    - 1.0.8802.1.1.2.1.4.1.1.6
+    - 1.0.8802.1.1.2.1.4.1.1.7
+    - 1.0.8802.1.1.2.1.4.1.1.9
+  huawei_entity_extent_mib:
+    max_repetitions: 60
+    metrics:
+    - help: Operational state of the entity, values 1 notSupported, 2 disabled, 3 enabled, 4 offline, 11 up, 12 down, 13 connect, 15 protocolUp, 16 linkUp, 17 linkDown, 18 present, 19 absent (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.2
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityOperStatus
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.2
+      type: gauge
+    - enum_values:
+        0: notSupported
+        1: underRepair
+        2: critical
+        3: major
+        4: minor
+        5: alarmOutstanding
+        6: warning
+        7: indeterminate
+      help: Alarm status of the entity, a set of bits; none set on a healthy switch (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.4
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityAlarmLight
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.4
+      type: Bits
+    - help: CPU usage of the entity, percent (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityCpuUsage
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5
+      type: gauge
+    - help: Memory usage of the entity, percent (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityMemUsage
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7
+      type: gauge
+    - help: Temperature of the entity, degrees Celsius (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityTemperature
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11
+      type: gauge
+    - help: Transceiver temperature, degrees Celsius; 2147483647 is an invalid value (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.5
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityOpticalTemperature
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.5
+      type: gauge
+    - help: Transceiver receive power, dBm multiplied by 100 (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.8
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityOpticalRxPower
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.8
+      type: gauge
+    - help: Transceiver transmit power, dBm multiplied by 100 (HUAWEI-ENTITY-EXTENT-MIB) - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.9
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labelname: entPhysicalName
+        labels:
+        - entPhysicalIndex
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      name: hwEntityOpticalTxPower
+      oid: 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.9
+      type: gauge
+    retries: 1
+    timeout: 5s
+    walk:
+    - 1.3.6.1.2.1.47.1.1.1.1.7
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.2
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.4
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.5
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.8
+    - 1.3.6.1.4.1.2011.5.25.31.1.1.3.1.9

@@ -1,0 +1,22 @@
+remove_empty_groups: true
+
+process_names:
+  # WCS Java apps
+  - name: "{{.Matches.app}}"
+    cmdline:
+    - '/var/opt/wcs/(?P<app>[^/]+)/[^/]*\.jar'
+
+  # MirrorHA Jetty client
+  - name: "mirrorha-jetty"
+    cmdline:
+    - 'MirrorHA.*start\.jar'
+
+  # MS SQL Server (watchdog + engine combined)
+  - name: "mssql"
+    cmdline:
+    - '/opt/mssql/bin/sqlservr'
+
+  # everything else, lumped by process name
+  - name: "{{.Comm}}"
+    cmdline:
+    - '.+'
