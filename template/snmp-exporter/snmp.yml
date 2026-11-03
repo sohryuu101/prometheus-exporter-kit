@@ -1,16 +1,12 @@
 # WARNING: This file was auto-generated using snmp_exporter generator, manual changes will be lost.
-# Shared by several sites. Beyond the standard topology modules it carries:
-#   hh3c_stack_mib, huawei_stack_mib   stack roles (all sites)
-#   huawei_fan_power_mib               Huawei fans and power units
-#   futurematrix_*_mib                 the FutureMatrix builds of the Huawei modules
-#   if_mib_lite                        a 7-column if_mib, for cores that cannot answer the full IF-MIB in a 15 s scrape
-#   auth site_main, site_ro            the per-site SNMP communities (PLACEHOLDERS: set before use)
+# Shared by Sunter, Cakung and Kosambi. Beyond the standard topology modules (TOPOLOGY.md) it carries:
+#   hh3c_stack_mib, huawei_stack_mib   stack roles (all three sites)
+#   huawei_fan_power_mib               Huawei fans and power units (Sunter, Cakung)
+#   futurematrix_*_mib                 the FutureMatrix builds of the Huawei modules (Sunter SW24)
+#   if_mib_lite                        Kosambi's 7-column if_mib: its core cannot answer the full IF-MIB in a 15 s scrape
+#   auth site_main, site_ro            the site main and read-only SNMP communities (injected at install)
 # Comments inside the modules block are avoided on purpose: topology_check.py compares module text, and a comment
 # belongs to the module above it.
-#
-# The two communities below are placeholders. Replace them with your site's
-# community strings before deploying, and keep this file out of version control
-# once real values are in it.
 auths:
   public_v1:
     community: public

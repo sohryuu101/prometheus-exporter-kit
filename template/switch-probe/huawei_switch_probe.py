@@ -451,7 +451,10 @@ def main():
 
     # Create log directory
     log_dir = os.path.expanduser("~/huawei_switch_logs")
-    os.makedirs(log_dir, exist_ok=True)
+    # The log holds the full config, local users and SNMP communities: keep the
+    # directory and the file owner-only.
+    os.makedirs(log_dir, mode=0o700, exist_ok=True)
+    os.chmod(log_dir, 0o700)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"HUAWEI_{switch_name}_{timestamp}.log")
@@ -476,7 +479,9 @@ def main():
             sys.exit(1)
 
         # Open log file
-        console.log_fh = open(log_file, "w")
+        fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)
+        console.log_fh = os.fdopen(fd, "w")
         console.log(f"{'='*70}\n")
         console.log(f" Huawei Switch Discovery Log\n")
         console.log(f" Switch:    {switch_name}\n")

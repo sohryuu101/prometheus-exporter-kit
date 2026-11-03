@@ -1,6 +1,7 @@
 # Remote uninstall of blackbox_exporter from multiple induction PCs.
-# Run FROM your admin PC. Same WinRM/SMB access requirements as deploy_remote.ps1
-# (TrustedHosts set, WinRM reachable). Does not depend on the kit folder still
+# Run FROM your admin PC. Same WinRM access requirements as deploy_remote.ps1
+# (TrustedHosts set, WinRM reachable). Also removes the firewall rule
+# "blackbox_exporter (Prometheus only)". Does not depend on the kit folder still
 # being present on the target - talks directly to the installed nssm.exe.
 #
 # Usage:
@@ -20,10 +21,12 @@ foreach ($pc in $Targets) {
             $installDir = "C:\BlackboxExporter"
             $svc = "blackbox_exporter"
             if (-not (Test-Path "$installDir\nssm.exe")) {
+                & netsh.exe advfirewall firewall delete rule name="$svc (Prometheus only)" 2>$null | Out-Null
                 return "nssm.exe not found in $installDir - nothing to remove or already uninstalled."
             }
             & "$installDir\nssm.exe" stop $svc 2>$null | Out-Null
             & "$installDir\nssm.exe" remove $svc confirm 2>$null | Out-Null
+            & netsh.exe advfirewall firewall delete rule name="$svc (Prometheus only)" 2>$null | Out-Null
             Start-Sleep -Seconds 2
             $stillListening = (Get-NetTCPConnection -LocalPort 9115 -ErrorAction SilentlyContinue)
             if ($stillListening) {

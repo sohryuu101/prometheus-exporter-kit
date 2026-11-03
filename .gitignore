@@ -18,3 +18,12 @@ template/blackbox-exporter-windows/blackbox_exporter.exe
 # Local site values — never commit real SNMP communities
 template/*/vars.env
 template/snmp-exporter/snmp.local.yml
+
+# Switch probe reports: full configs, local users and SNMP communities
+probe_output*.txt
+HUAWEI_*.log
+huawei_switch_logs/
+
+# Staged binaries for the newer Windows kits (sql_exporter.exe is ~95 MB)
+template/mssql-exporter-windows/sql_exporter.exe
+template/snmp-exporter-windows/snmp_exporter.exe

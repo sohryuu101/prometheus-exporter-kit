@@ -200,5 +200,5 @@ jobs:
     collectors: [mssql_custom]
     static_configs:
       - targets:
-          db1: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_MAIN}:1433?database=master&encrypt=disable"
-          db2: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_BACKUP}:1433?database=master&encrypt=disable"
+          db1: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_MAIN}:1433?database=master&encrypt=${MSSQL_ENCRYPT}&TrustServerCertificate=${MSSQL_TRUST_CERT}"
+          db2: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_BACKUP}:1433?database=master&encrypt=${MSSQL_ENCRYPT}&TrustServerCertificate=${MSSQL_TRUST_CERT}"

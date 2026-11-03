@@ -9,12 +9,13 @@ PROCESS_VERSION="0.8.7"
 SQL_VERSION="0.24.0"
 BLACKBOX_VERSION="0.28.0"
 WINDOWS_EXPORTER_VERSION="0.25.1"
+SNMP_VERSION="0.30.1"
 NSSM_VERSION="2.24"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OFFLINE_SOURCE_DIR="${OFFLINE_SOURCE_DIR:-}"
 
 usage() {
-  echo "Usage: $0 [all|node-exporter|process-exporter|mssql-exporter|blackbox-exporter|windows-exporter|blackbox-exporter-windows ...]" >&2
+  echo "Usage: $0 [all|node-exporter|process-exporter|mssql-exporter|blackbox-exporter|windows-exporter|blackbox-exporter-windows|mssql-exporter-windows|snmp-exporter-windows ...]" >&2
   echo "  all = the four Linux packages; the Windows kits must be named explicitly." >&2
   exit 2
 }
@@ -28,7 +29,7 @@ if ! command -v tar >/dev/null 2>&1; then
   exit 1
 fi
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
-  echo "sha256sum or shasum is required to write transfer checksums." >&2
+  echo "sha256sum or shasum is required to verify the downloads." >&2
   exit 1
 fi
 
@@ -54,20 +55,26 @@ stage_exporter() {
       --output "$staging_dir/$archive" "$url"
   fi
 
+  # Verify against the upstream hash committed in the package (SHA256SUMS), not a
+  # hash computed from whatever was just downloaded: that would only prove the
+  # file was copied intact, not that it is the genuine upstream release.
+  if [[ ! -r "$SCRIPT_DIR/$package/SHA256SUMS" ]]; then
+    echo "Missing $SCRIPT_DIR/$package/SHA256SUMS; cannot verify the download." >&2
+    return 1
+  fi
+  cp "$SCRIPT_DIR/$package/SHA256SUMS" "$staging_dir/SHA256SUMS"
+  if ! (cd "$staging_dir" && { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; }); then
+    echo "Checksum verification failed for $archive; nothing staged." >&2
+    return 1
+  fi
+
   if ! tar -tzf "$staging_dir/$archive" >/dev/null; then
     echo "Invalid gzip tar archive: $staging_dir/$archive" >&2
     return 1
   fi
 
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$staging_dir" && sha256sum "$archive") > "$staging_dir/SHA256SUMS"
-  else
-    (cd "$staging_dir" && shasum -a 256 "$archive") > "$staging_dir/SHA256SUMS"
-  fi
-
   mkdir -p "$dist_dir"
   mv "$staging_dir/$archive" "$dist_dir/$archive"
-  mv "$staging_dir/SHA256SUMS" "$dist_dir/SHA256SUMS"
   echo "Staged $package in $dist_dir"
 }
 
@@ -123,6 +130,23 @@ stage_windows_kit() {
       unzip -j -o "$staging_dir/$asset" '*/blackbox_exporter.exe' -d "$staging_dir" >/dev/null
       rm -f "$staging_dir/$asset"
       ;;
+    mssql-exporter-windows)
+      # sql_exporter.exe is ~95 MB, so it is never committed: this is how it arrives.
+      asset="sql_exporter-${SQL_VERSION}.windows-amd64.zip"
+      fetch_archive "$asset" \
+        "https://github.com/burningalchemist/sql_exporter/releases/download/${SQL_VERSION}/${asset}" \
+        "$staging_dir"
+      unzip -j -o "$staging_dir/$asset" '*/sql_exporter.exe' -d "$staging_dir" >/dev/null
+      rm -f "$staging_dir/$asset"
+      ;;
+    snmp-exporter-windows)
+      asset="snmp_exporter-${SNMP_VERSION}.windows-amd64.zip"
+      fetch_archive "$asset" \
+        "https://github.com/prometheus/snmp_exporter/releases/download/v${SNMP_VERSION}/${asset}" \
+        "$staging_dir"
+      unzip -j -o "$staging_dir/$asset" '*/snmp_exporter.exe' -d "$staging_dir" >/dev/null
+      rm -f "$staging_dir/$asset"
+      ;;
     *)
       echo "Unknown Windows kit: $package" >&2
       return 1
@@ -172,7 +196,7 @@ for package in "$@"; do
         "blackbox_exporter-${BLACKBOX_VERSION}.linux-amd64.tar.gz" \
         "https://github.com/prometheus/blackbox_exporter/releases/download/v${BLACKBOX_VERSION}/blackbox_exporter-${BLACKBOX_VERSION}.linux-amd64.tar.gz"
       ;;
-    windows-exporter|blackbox-exporter-windows)
+    windows-exporter|blackbox-exporter-windows|mssql-exporter-windows|snmp-exporter-windows)
       stage_windows_kit "$package"
       ;;
     *) usage ;;

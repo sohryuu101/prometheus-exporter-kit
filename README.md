@@ -14,7 +14,8 @@ scrape jobs.
 ```sh
 # 1. stage the upstream release archives (internet-connected workstation)
 ./template/prepare-offline.sh all
-./template/prepare-offline.sh windows-exporter blackbox-exporter-windows
+./template/prepare-offline.sh windows-exporter blackbox-exporter-windows \
+                              mssql-exporter-windows snmp-exporter-windows
 
 # 2. build the transferable archive
 ./template/package.sh node-exporter          # or all, for the four Linux packages
@@ -26,6 +27,12 @@ sudo bash install.sh --dry-run && sudo bash install.sh
 # 4. render the Prometheus scrape job for the site
 ./template/prometheus-jobs/render-job.sh node
 ```
+
+**Windows host:** build the kit's zip instead
+(`./template/package.sh mssql-exporter-windows`), extract it on the PC and run
+`install.bat` as Administrator. It asks for the Prometheus server's address (for
+the firewall rule) and any credentials the kit needs. Ports: `windows_exporter`
+9182, `blackbox_exporter` 9115, `mssql_exporter` 9399, `snmp_exporter` 9116.
 
 The release archives and the Windows `.exe` files are **not** committed — step 1
 fetches them from their upstream releases and verifies each checksum.
@@ -40,6 +47,8 @@ fetches them from their upstream releases and verifies each checksum.
 | `template/blackbox-exporter/` | Probes for reachability of hosts and PLCs (ICMP/TCP/HTTP) |
 | `template/windows-exporter/` | Windows/amd64 kit, installed as an NSSM service |
 | `template/blackbox-exporter-windows/` | Windows/amd64 blackbox kit, plus remote-deploy scripts |
+| `template/mssql-exporter-windows/` | Windows/amd64 SQL Server kit; prompts for its addresses and login at install |
+| `template/snmp-exporter-windows/` | Windows/amd64 SNMP probe kit; prompts for the switch communities at install |
 | `template/ipmi-text/` | IPMI sensors, PSUs, drive slots and SEL into node_exporter's textfile collector |
 | `template/snmp-exporter/` | Shared `snmp.yml` and `topology_check.py` for switch topology data |
 | `template/switch-probe/` | Serial-console discovery scripts for H3C and Huawei switches |
@@ -70,11 +79,13 @@ strings. Set them to your site's values before deploying, and keep real values
 out of version control — this file is the natural place to leak network
 credentials. See [`template/README.md`](template/README.md#snmp-communities).
 
-Several of the shipped exporters listen on all interfaces without
-authentication, and the Windows kits install to a default-permission directory
-while running as LocalSystem. Each package README documents its exposure and the
-firewall/ACL mitigations. Read them before putting a host on an untrusted
-network.
+The exporters have no authentication of their own. Every installer asks for
+the Prometheus server's address (`PROMETHEUS_ALLOW`) and restricts the port to it:
+a systemd `IPAddressAllow` drop-in on Linux, a firewall rule on Windows. Leave it
+empty and the port stays open, with a warning. The Windows kits lock their
+install folder to SYSTEM and Administrators and verify each binary's hash before
+installing the service. Each package README says what is still exposed; read
+them before putting a host on an untrusted network.
 
 ## Licenses
 

@@ -9,5 +9,12 @@ Type=simple
 ExecStart=/usr/local/bin/node_exporter --web.listen-address=:9100 --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
 Restart=on-failure
 
+NoNewPrivileges=true
+ProtectSystem=strict
+# read-only rather than true: the filesystem collector must still stat /home.
+ProtectHome=read-only
+ProtectKernelModules=true
+ProtectControlGroups=true
+
 [Install]
 WantedBy=multi-user.target

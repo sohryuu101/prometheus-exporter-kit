@@ -8,12 +8,18 @@ Requires: pip3 install pyserial
 
 Usage:
     python3 h3c_probe_serial.py --port /dev/tty.usbserial-XXXX --name SW-CORE-01
-    python3 h3c_probe_serial.py --port /dev/tty.usbserial-XXXX --name SW-CORE-01 --user admin --password xxxx
+    python3 h3c_probe_serial.py --port /dev/tty.usbserial-XXXX --name SW-CORE-01 --user admin
+    (the password is prompted for and not echoed)
+
+The report contains the full configuration, local users and SNMP communities.
+It is written owner-readable only (0600); keep it out of version control.
 
 List available ports:
     python3 h3c_probe_serial.py --list-ports
 """
 import argparse
+import getpass
+import os
 import re
 import sys
 import time
@@ -214,7 +220,11 @@ def run_probe(port, baudrate, switch_name, user, password, out_path):
     ser.close()
 
     content = '\n'.join(lines)
-    with open(out_path, 'w') as f:
+    # The report holds credentials (config, local users, SNMP communities):
+    # create it owner-only rather than with the default umask.
+    fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, 'w') as f:
         f.write(content)
     print(f"\n>>> Saved to {out_path}")
 
@@ -225,7 +235,6 @@ def main():
     ap.add_argument('--baud', type=int, default=9600, help='Baud rate (Comware default 9600)')
     ap.add_argument('--name', default='UNKNOWN', help='Switch name label for report')
     ap.add_argument('--user', default=None, help='Login username (skip if already at CLI prompt)')
-    ap.add_argument('--password', default=None, help='Login password')
     ap.add_argument('--out', default='probe_output.txt', help='Output file path')
     ap.add_argument('--list-ports', action='store_true', help='List serial ports and exit')
     args = ap.parse_args()
@@ -238,7 +247,10 @@ def main():
         print("Need --port. Use --list-ports to see options.")
         sys.exit(1)
 
-    run_probe(args.port, args.baud, args.name, args.user, args.password, args.out)
+    # Prompted rather than taken as an argument: a command-line password is
+    # visible in the process list and saved in shell history.
+    password = getpass.getpass("Password: ") if args.user else None
+    run_probe(args.port, args.baud, args.name, args.user, password, args.out)
 
 
 if __name__ == '__main__':

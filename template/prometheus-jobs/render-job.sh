@@ -24,6 +24,13 @@ for var in "${VARS[@]}"; do
     read -r -p "$label: " "$var"
   fi
   [[ -n "${!var}" ]] || { echo "$var cannot be empty." >&2; exit 1; }
+  # Values are pasted into YAML and STATION_NAME into a file name: keep both safe.
+  if [[ "${!var}" =~ [[:cntrl:]\"\'\`\$\\{}] ]]; then
+    echo "$var contains a character that is not allowed (quotes, \$, {}, backslash or control)." >&2; exit 1
+  fi
+  if [[ "$var" == STATION_NAME && ! "${!var}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "STATION_NAME may only contain letters, digits, '.', '_' and '-'." >&2; exit 1
+  fi
   export "$var"
 done
 

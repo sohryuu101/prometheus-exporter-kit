@@ -1,0 +1,204 @@
+global:
+  scrape_timeout_offset: 500ms
+  min_interval: 0s
+  max_connections: 3
+  max_idle_connections: 3
+
+collectors:
+  - collector_name: mssql_custom
+    metrics:
+      - metric_name: mssql_up
+        type: gauge
+        help: MSSQL instance is up
+        values: [up]
+        query: "SELECT 1 AS up"
+
+      - metric_name: mssql_instance_local_time
+        type: gauge
+        help: Local time in seconds since Unix epoch
+        values: [unix_time]
+        query: |
+          SELECT DATEDIFF_BIG(SECOND, '19700101', GETUTCDATE()) AS unix_time
+
+      - metric_name: mssql_total_physical_memory_kb
+        type: gauge
+        help: Total physical memory in KB
+        values: [total_physical_memory_kb]
+        query: |
+          SELECT total_physical_memory_kb FROM sys.dm_os_sys_memory
+
+      - metric_name: mssql_available_physical_memory_kb
+        type: gauge
+        help: Available physical memory in KB
+        values: [available_physical_memory_kb]
+        query: |
+          SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory
+
+      - metric_name: mssql_total_page_file_kb
+        type: gauge
+        help: Total page file in KB
+        values: [total_page_file_kb]
+        query: |
+          SELECT total_page_file_kb FROM sys.dm_os_sys_memory
+
+      - metric_name: mssql_available_page_file_kb
+        type: gauge
+        help: Available page file in KB
+        values: [available_page_file_kb]
+        query: |
+          SELECT available_page_file_kb FROM sys.dm_os_sys_memory
+
+      - metric_name: mssql_page_fault_count
+        type: counter
+        help: Number of page faults incurred by SQL Server process
+        values: [page_fault_count]
+        query: |
+          SELECT page_fault_count FROM sys.dm_os_process_memory
+
+      - metric_name: mssql_batch_requests
+        type: counter
+        help: Number of batch requests received
+        values: [cntr_value]
+        query: |
+          SELECT cntr_value FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Batch Requests/sec'
+
+      - metric_name: mssql_page_life_expectancy
+        type: gauge
+        help: Page life expectancy in seconds
+        values: [cntr_value]
+        query: |
+          SELECT TOP (1) cntr_value FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Page life expectancy'
+
+      - metric_name: mssql_deadlocks
+        type: counter
+        help: Number of lock requests that resulted in a deadlock
+        values: [cntr_value]
+        query: |
+          SELECT cntr_value FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Number of Deadlocks/sec' AND instance_name = '_Total'
+
+      - metric_name: mssql_user_errors
+        type: counter
+        help: Number of user errors
+        values: [cntr_value]
+        query: |
+          SELECT cntr_value FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Errors/sec' AND instance_name = 'User Errors'
+
+      - metric_name: mssql_kill_connection_errors
+        type: counter
+        help: Number of severe errors that caused SQL Server to kill the connection
+        values: [cntr_value]
+        query: |
+          SELECT cntr_value FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Errors/sec' AND instance_name = 'Kill Connection Errors'
+
+      - metric_name: mssql_database_state
+        type: gauge
+        help: Database state by database
+        key_labels: [db]
+        values: [state]
+        query: |
+          SELECT name AS db, state AS state FROM sys.databases
+
+      - metric_name: mssql_connections
+        type: gauge
+        help: Number of active user connections
+        values: [connections]
+        query: |
+          SELECT COUNT(*) AS connections FROM sys.dm_exec_sessions
+          WHERE is_user_process = 1
+
+      - metric_name: mssql_conn_by_user
+        type: gauge
+        help: Active connections by login
+        key_labels: [login]
+        values: [connections]
+        query: |
+          SELECT login_name AS login, COUNT(*) AS connections
+          FROM sys.dm_exec_sessions
+          WHERE is_user_process = 1 AND login_name IS NOT NULL
+          GROUP BY login_name
+
+      - metric_name: mssql_log_growths
+        type: counter
+        help: Number of transaction log growths per database
+        key_labels: [db]
+        values: [cntr_value]
+        query: |
+          SELECT RTRIM(instance_name) AS db, cntr_value
+          FROM sys.dm_os_performance_counters WITH (NOLOCK)
+          WHERE counter_name = 'Log Growths' AND instance_name <> '_Total'
+
+      - metric_name: mssql_backup_age_seconds
+        type: gauge
+        help: Seconds since last backup
+        key_labels: [db]
+        values: [age_seconds]
+        query: |
+          SELECT d.name AS db,
+                 DATEDIFF(SECOND, MAX(b.backup_finish_date), GETDATE()) AS age_seconds
+          FROM sys.databases d
+          LEFT JOIN msdb.dbo.backupset b ON d.name = b.database_name
+          GROUP BY d.name
+
+      - metric_name: mssql_database_size_bytes
+        type: gauge
+        help: Database size in bytes
+        key_labels: [db]
+        values: [size_bytes]
+        query: |
+          SELECT DB_NAME(database_id) AS db,
+                 SUM(CAST(size AS bigint)) * 8 * 1024 AS size_bytes
+          FROM sys.master_files
+          GROUP BY database_id
+
+      - metric_name: mssql_io_stall_total
+        type: counter
+        help: I/O stall total in milliseconds per database and operation
+        key_labels: [db]
+        value_label: operation
+        values: [read_ms, write_ms]
+        query: |
+          SELECT CAST(DB_NAME(a.database_id) AS varchar(256)) AS db,
+                 SUM(io_stall_read_ms) AS read_ms,
+                 SUM(io_stall_write_ms) AS write_ms
+          FROM sys.dm_io_virtual_file_stats(NULL, NULL) a
+          INNER JOIN sys.master_files b
+            ON a.database_id = b.database_id AND a.file_id = b.file_id
+          GROUP BY a.database_id
+
+      - metric_name: mssql_io_stall_seconds
+        type: counter
+        help: I/O stall total in seconds per database and operation
+        key_labels: [db]
+        value_label: operation
+        values: [read_seconds, write_seconds]
+        query: |
+          SELECT CAST(DB_NAME(a.database_id) AS varchar(256)) AS db,
+                 SUM(io_stall_read_ms) / 1000.0 AS read_seconds,
+                 SUM(io_stall_write_ms) / 1000.0 AS write_seconds
+          FROM sys.dm_io_virtual_file_stats(NULL, NULL) a
+          INNER JOIN sys.master_files b
+            ON a.database_id = b.database_id AND a.file_id = b.file_id
+          GROUP BY a.database_id
+
+      - metric_name: mssql_slow_running_queries
+        type: gauge
+        help: Count of currently executing requests running longer than 5 seconds
+        values: [slow_count]
+        query: |
+          SELECT COUNT(*) AS slow_count
+          FROM sys.dm_exec_requests
+          WHERE session_id > 50
+            AND DATEDIFF(SECOND, start_time, GETDATE()) > 5
+
+jobs:
+  - job_name: mssql_targets
+    collectors: [mssql_custom]
+    static_configs:
+      - targets:
+          db1: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_MAIN}:1433?database=master&encrypt=${MSSQL_ENCRYPT}&TrustServerCertificate=${MSSQL_TRUST_CERT}"
+          db2: "sqlserver://${MSSQL_SA_USER}:${MSSQL_SA_PASSWORD}@${TARGET_IP_BACKUP}:1433?database=master&encrypt=${MSSQL_ENCRYPT}&TrustServerCertificate=${MSSQL_TRUST_CERT}"

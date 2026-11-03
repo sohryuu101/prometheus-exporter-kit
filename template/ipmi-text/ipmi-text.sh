@@ -36,8 +36,11 @@ START=$(date +%s)
 mkdir -p "$DIR" || exit 1
 
 # One run at a time: the calls can take a while on a loaded BMC and cron fires
-# every minute.
-LOCK="$DIR/.ipmi-text.lock"
+# every minute. The lock lives in a root-only directory, not in the textfile
+# directory, which other accounts may be able to write to.
+LOCK_PARENT=/run
+[ -d "$LOCK_PARENT" ] || LOCK_PARENT=/var/run
+LOCK="$LOCK_PARENT/ipmi-text.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   old=$(cat "$LOCK/pid" 2>/dev/null)
   if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
@@ -305,4 +308,9 @@ END=$(date +%s)
 } >> "$PROM"
 
 chmod 0644 "$PROM"
-mv "$PROM" "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+# Unpredictable temporary name in the target directory, then an atomic rename.
+TMP_OUT=$(mktemp "$DIR/.ipmi.prom.XXXXXX") || exit 1
+if ! mv -f "$PROM" "$TMP_OUT" || ! mv -f "$TMP_OUT" "$OUT"; then
+  rm -f "$TMP_OUT"
+  exit 1
+fi

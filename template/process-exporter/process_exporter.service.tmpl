@@ -14,6 +14,12 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# Root, but only with what reading every process's /proc entries needs.
+CapabilityBoundingSet=CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 
 [Install]
 WantedBy=multi-user.target

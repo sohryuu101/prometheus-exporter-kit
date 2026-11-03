@@ -2,7 +2,8 @@
 # Install/refresh blackbox_exporter using files in this package directory.
 #
 # Usage: sudo ./install.sh [--dry-run]
-# Site values are only needed to render the Prometheus job (done by package.sh).
+# Optional: PROMETHEUS_ALLOW (scraper IPs/CIDRs) and PROBE_NETWORKS (probed CIDRs)
+# restrict the exporter's network access; both are asked for when unset.
 
 set -euo pipefail
 
@@ -21,11 +22,12 @@ require_local_archive() {
     echo "On a connected workstation, run template/prepare-offline.sh blackbox-exporter and copy the blackbox-exporter folder." >&2
     return 1
   fi
-  if [[ ! -r "$DIST_DIR/SHA256SUMS" ]]; then
-    echo "Archive checksum file is missing: $DIST_DIR/SHA256SUMS" >&2
+  # SHA256SUMS ships in the package and holds the pinned upstream hash.
+  if [[ ! -r "$SCRIPT_DIR/SHA256SUMS" ]]; then
+    echo "Pinned checksum file is missing: $SCRIPT_DIR/SHA256SUMS" >&2
     return 1
   fi
-  (cd "$DIST_DIR" && sha256sum -c SHA256SUMS)
+  (cd "$DIST_DIR" && sha256sum -c "$SCRIPT_DIR/SHA256SUMS")
 }
 
 install_local_binary() {
@@ -70,6 +72,60 @@ run() {
   fi
 }
 
+# Restrict who can reach this exporter (it has no authentication of its own).
+# PROMETHEUS_ALLOW: comma-separated IPs/CIDRs of the Prometheus server(s); asked
+# for when unset and running in a terminal. Applied as a systemd drop-in with
+# IPAddressDeny=any + IPAddressAllow, which filters ALL of the unit's traffic, so
+# any address the exporter itself must reach is passed as extra arguments.
+# Empty PROMETHEUS_ALLOW keeps an existing drop-in, or leaves the port open.
+apply_ip_allow() {
+  local unit="$1"; shift
+  local dropin="/etc/systemd/system/$unit.d/10-ip-allow.conf"
+  local allow="${PROMETHEUS_ALLOW:-}" addr list=""
+
+  if [[ -z "$allow" && -t 0 ]]; then
+    read -r -p "Prometheus server IP(s)/CIDR(s) allowed to scrape, comma-separated (empty = anyone): " allow
+  fi
+  allow="${allow//,/ }"
+  if [[ -z "${allow// /}" ]]; then
+    if [[ -f "$dropin" ]]; then
+      echo "Keeping the existing scrape restriction in $dropin"
+    else
+      echo "WARNING: PROMETHEUS_ALLOW not set: $unit is reachable by anyone who can reach this host." >&2
+    fi
+    return 0
+  fi
+
+  local -a addrs
+  read -r -a addrs <<< "$allow"
+  for addr in "${addrs[@]}" "$@"; do
+    if [[ ! "$addr" =~ ^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$ ]]; then
+      echo "Not an IP address or CIDR: $addr" >&2
+      exit 1
+    fi
+    list+=" $addr"
+  done
+
+  if $DRY_RUN; then
+    printf '[dry-run] write %s: IPAddressDeny=any, IPAddressAllow=localhost%s\n' "$dropin" "$list"
+  else
+    mkdir -p "$(dirname "$dropin")"
+    printf '[Service]\nIPAddressDeny=any\nIPAddressAllow=localhost%s\n' "$list" > "$dropin"
+    chmod 0644 "$dropin"
+    echo "Restricted $unit to localhost$list"
+  fi
+
+  # systemd only enforces this with eBPF on a cgroup v2 (unified or hybrid)
+  # hierarchy, from v235. Elsewhere it is silently ignored: say so.
+  local sd_version
+  sd_version="$(systemctl --version 2>/dev/null | awk 'NR==1 {print $2}')"
+  if [[ ! "$sd_version" =~ ^[0-9]+$ ]] || ((sd_version < 235)) ||
+     { [[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" != cgroup2fs ]] && [[ ! -d /sys/fs/cgroup/unified ]]; }; then
+    echo "WARNING: this host's systemd cannot enforce IPAddressAllow (needs systemd >= 235 and cgroup v2)." >&2
+    echo "         Restrict the port with the host firewall instead (firewalld/iptables)." >&2
+  fi
+}
+
 echo "== blackbox_exporter install =="
 
 if ! id blackbox_exporter &>/dev/null; then
@@ -86,6 +142,20 @@ run mkdir -p /etc/blackbox_exporter
 run install -m 0644 "$SCRIPT_DIR/blackbox.yml" /etc/blackbox_exporter/blackbox.yml
 
 run install -m 0644 "$SCRIPT_DIR/blackbox_exporter.service.tmpl" /etc/systemd/system/blackbox_exporter.service
+
+# The IP restriction also filters the probes themselves, so it needs the networks
+# the exporter probes (PROBE_NETWORKS, comma-separated CIDRs, e.g. the PLC
+# segment). Without them a restriction would break every probe, so none is set.
+if [[ -z "${PROBE_NETWORKS:-}" && -t 0 ]]; then
+  read -r -p "Networks this host probes, comma-separated CIDRs (empty = do not restrict): " PROBE_NETWORKS
+fi
+read -r -a probe_networks <<< "${PROBE_NETWORKS//,/ }"
+if ((${#probe_networks[@]})); then
+  apply_ip_allow blackbox_exporter.service "${probe_networks[@]}"
+else
+  echo "WARNING: PROBE_NETWORKS not set, so :9115 is not restricted. Anyone who can reach it can" >&2
+  echo "         make this host probe arbitrary addresses. Firewall it to the Prometheus server." >&2
+fi
 
 run systemctl daemon-reload
 run systemctl enable blackbox_exporter.service

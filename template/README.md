@@ -9,7 +9,7 @@ see `prometheus-jobs/`.
 | Path | What it is |
 | --- | --- |
 | `node-exporter/`, `process-exporter/`, `mssql-exporter/`, `blackbox-exporter/` | Linux/amd64 packages, installed as systemd units |
-| `windows-exporter/`, `blackbox-exporter-windows/` | Windows/amd64 kits, installed as NSSM services (`.zip`) |
+| `windows-exporter/`, `blackbox-exporter-windows/`, `mssql-exporter-windows/`, `snmp-exporter-windows/` | Windows/amd64 kits, installed as NSSM services (`.zip`) |
 | `ipmi-text/` | Script package: IPMI sensors into node_exporter's textfile collector |
 | `snmp-exporter/` | Shared `snmp.yml` and the topology check tool |
 | `switch-probe/` | Serial-console discovery scripts for switches |
@@ -24,12 +24,15 @@ on an internet-connected workstation:
 
 ```sh
 ./template/prepare-offline.sh all                                     # the four Linux packages
-./template/prepare-offline.sh windows-exporter blackbox-exporter-windows
+./template/prepare-offline.sh windows-exporter blackbox-exporter-windows \
+                              mssql-exporter-windows snmp-exporter-windows
 ```
 
 `OFFLINE_SOURCE_DIR=/path/to/archives` stages files you downloaded elsewhere
-instead of fetching them. The script verifies each archive and writes a
-`SHA256SUMS` beside it.
+instead of fetching them. Each archive is checked against the upstream hash
+committed in its package's `SHA256SUMS`; on a mismatch nothing is staged. When
+you bump a version, take the new hash from the upstream release's checksum file,
+not from a file you downloaded.
 
 Then build the package:
 
@@ -57,7 +60,14 @@ config takes effect immediately.
 
 Each Linux package targets x86_64 (amd64). The server must already have Bash,
 tar, `sha256sum`, core utilities, and systemd. The installer checks the archive
-checksum and does not access the network or install OS packages.
+against the pinned upstream hash in the package's `SHA256SUMS` and does not
+access the network or install OS packages.
+
+Every installer asks for `PROMETHEUS_ALLOW`, the Prometheus server's IPs/CIDRs
+(pre-set it in the environment to skip the prompt). On Linux it becomes a systemd
+`IPAddressAllow` drop-in; on Windows, a firewall rule for the exporter's port.
+Left empty, the port stays reachable by anyone and the installer warns. Each
+package README explains the details and what is still exposed.
 
 See the README inside each package for its exact steps. The process-exporter
 package includes a baseline `config.yml`; review its process matching rules for
@@ -86,6 +96,15 @@ explicitly.
 `snmp-exporter/snmp.yml` ships with **placeholder** community strings
 (`REPLACE_WITH_COMMUNITY`, `REPLACE_WITH_READ_ONLY_COMMUNITY`). Set them to your
 site's values before deploying, and keep real values out of version control —
-this file is a natural place to leak network credentials. The `public_v1` /
-`public_v2` auths use the SNMP default community `public`; change those too
-unless your devices genuinely require it.
+this file is a natural place to leak network credentials. `site_main` and
+`site_ro` carry the placeholders; the `public_v1` / `public_v2` auths use the
+SNMP default community `public` and are kept as in the source config. SNMP v2c
+sends the community in clear text, so restrict it on the switches to the probe
+host's address.
+
+## Switch probe reports
+
+`switch-probe/*.py` dump a switch's full configuration, local users and SNMP
+communities over the serial console. Both prompt for the login password (never
+on the command line) and write their report owner-only (`0600`). Treat the
+reports as credentials; `.gitignore` excludes their default names.
