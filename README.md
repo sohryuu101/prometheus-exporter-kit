@@ -28,9 +28,20 @@ sudo bash install.sh --dry-run && sudo bash install.sh
 ./template/prometheus-jobs/render-job.sh node
 ```
 
-**Windows host:** build the kit's zip instead
+**Windows host, ready-made:** each Windows kit is attached, binaries included
+and verified, to the [latest release](https://github.com/sohryuu101/prometheus-exporter-kit/releases/latest).
+In a browser on the PC, download the one you need, for example
+`https://github.com/sohryuu101/prometheus-exporter-kit/releases/latest/download/mssql-exporter-windows.zip`
+(also `windows-exporter.zip`, `blackbox-exporter-windows.zip`,
+`snmp-exporter-windows.zip`; each has a `.sha256` beside it). Extract it, then
+right-click `install.bat` → Run as administrator. No git or bash needed.
+
+**Windows host, built yourself:** build the kit's zip instead
 (`./template/package.sh mssql-exporter-windows`), extract it on the PC and run
-`install.bat` as Administrator. It asks for the Prometheus server's address (for
+`install.bat` as Administrator. Or, if the PC has internet access, stage it on
+the PC itself (no bash needed) and install in place:
+`template\prepare-offline.cmd mssql-exporter-windows`, then
+`template\mssql-exporter-windows\install.bat` as Administrator. It asks for the Prometheus server's address (for
 the firewall rule) and any credentials the kit needs. Ports: `windows_exporter`
 9182, `blackbox_exporter` 9115, `mssql_exporter` 9399, `snmp_exporter` 9116.
 

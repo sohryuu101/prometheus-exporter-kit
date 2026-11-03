@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Stage release archives inside each standalone exporter package.
 # Set OFFLINE_SOURCE_DIR to copy archives downloaded on another workstation.
+# prepare-offline.ps1 (via prepare-offline.cmd) does the same on Windows; keep
+# the versions below in sync with it.
 
 set -euo pipefail
 

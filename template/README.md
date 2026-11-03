@@ -28,6 +28,21 @@ on an internet-connected workstation:
                               mssql-exporter-windows snmp-exporter-windows
 ```
 
+**On Windows** (no bash needed, built-in PowerShell only), run the same step
+with `prepare-offline.cmd`, from cmd or by double-clicking it:
+
+```bat
+template\prepare-offline.cmd mssql-exporter-windows snmp-exporter-windows
+```
+
+It stages exactly what `prepare-offline.sh` does and checks the same committed
+`SHA256SUMS`. On the Windows PC that will run the exporter, this is all you need:
+after staging, run the kit's `install.bat` as Administrator straight from its
+folder (`template\mssql-exporter-windows\install.bat`). No `package.sh` or zip
+is needed. To stage for other hosts, copy the kit folder (or, for Linux, the
+package folder with its `dist\`) across instead. Keep the versions in
+`prepare-offline.ps1` in sync with `prepare-offline.sh`.
+
 `OFFLINE_SOURCE_DIR=/path/to/archives` stages files you downloaded elsewhere
 instead of fetching them. Each archive is checked against the upstream hash
 committed in its package's `SHA256SUMS`; on a mismatch nothing is staged. When
