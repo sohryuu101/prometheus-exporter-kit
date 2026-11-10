@@ -17,6 +17,7 @@ set INSTALL_DIR=C:\MssqlExporter
 set SERVICE_NAME=mssql_exporter
 set EXE_NAME=sql_exporter.exe
 set PORT=9399
+set PROC_NAME=sql_exporter
 set SRC_DIR=%~dp0
 set SUMS=%INSTALL_DIR%\SHA256SUMS
 set FW_RULE=%SERVICE_NAME% (Prometheus only)
@@ -79,6 +80,17 @@ if not defined SQLUSER (
     goto :fail
 )
 
+:: refuse a junction/symlink: takeown /R and icacls /T would act on its target
+if exist "%INSTALL_DIR%" (
+    powershell -NoProfile -Command "if ((Get-Item -LiteralPath '%INSTALL_DIR%' -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { exit 1 }; exit 0"
+    if errorlevel 1 goto :reparse_fail
+)
+:: takeown first: it uses the take-ownership privilege, so it also works on files an
+:: earlier install left without any access for the current admin (icacls /setowner
+:: alone fails there with "Access is denied"). Not fatal on its own: "/D Y" is
+:: rejected on non-English Windows, and the per-file check below is the verdict.
+if exist "%INSTALL_DIR%" takeown /F "%INSTALL_DIR%" /R /A /D Y >nul 2>&1
+
 :: --- create and lock the install folder, then render config.yml ---
 :: install.ps1 creates the folder and restricts it to SYSTEM and Administrators
 :: BEFORE writing the config, so the executables below are copied into a folder
@@ -101,11 +113,12 @@ if not "%PS_RESULT%"=="0" (
     goto :fail
 )
 
-:: stop any running service first so its exe can be replaced (safe if none exists)
-if exist "%INSTALL_DIR%\nssm.exe" (
-    "%INSTALL_DIR%\nssm.exe" stop %SERVICE_NAME% >nul 2>&1
-    "%INSTALL_DIR%\nssm.exe" remove %SERVICE_NAME% confirm >nul 2>&1
-)
+:: ---- remove an earlier install's service before replacing its files ----
+:: A running service keeps nssm.exe and the exporter exe open, so neither could be
+:: replaced. This does not depend on the installed nssm.exe being present or usable.
+echo Removing any existing %SERVICE_NAME% service ...
+call :remove_service
+if errorlevel 1 goto :svc_remove_fail
 
 echo Copying files...
 copy /Y "%SRC_DIR%%EXE_NAME%" "%INSTALL_DIR%\" >nul
@@ -121,6 +134,20 @@ call :verify_hash "%EXE_NAME%" "%INSTALL_DIR%\%EXE_NAME%"
 if errorlevel 1 goto :hash_fail
 call :verify_hash nssm.exe "%INSTALL_DIR%\nssm.exe"
 if errorlevel 1 goto :hash_fail
+
+:: install.ps1 locks only the folder itself. Files an earlier (older) install left
+:: behind can still carry their own explicit entries, so reset every file to inherit
+:: from the locked folder, then put back the read-only entries on config.yml.
+icacls "%INSTALL_DIR%\*" /reset /T /C >nul
+icacls "%INSTALL_DIR%\config.yml" /inheritance:r /grant:r *S-1-5-18:(R) *S-1-5-32-544:(R) >nul
+if errorlevel 1 goto :acl_fail
+
+:: allow-list check on the folder AND every file in it (icacls /C keeps going after
+:: per-file errors, so its exit code alone does not prove the lock-down worked):
+:: every ACE must be SYSTEM or Administrators, the owner one of those or the installing
+:: admin (the default owner of new files depends on local policy), no reparse points
+powershell -NoProfile -Command "$ok='S-1-5-18','S-1-5-32-544'; $own=$ok + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $sid=[Security.Principal.SecurityIdentifier]; $items=@(Get-Item -LiteralPath '%INSTALL_DIR%' -Force) + @(Get-ChildItem -LiteralPath '%INSTALL_DIR%' -Force -Recurse); foreach ($i in $items) { if ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) { Write-Host ('  reparse point: ' + $i.FullName); exit 1 }; $a=Get-Acl -LiteralPath $i.FullName; $r=@($a.GetAccessRules($true,$true,$sid)); if (($own -notcontains $a.GetOwner($sid).Value) -or $r.Count -eq 0 -or @($r | Where-Object { $ok -notcontains $_.IdentityReference.Value }).Count -gt 0) { Write-Host ('  unexpected owner or permissions: ' + $i.FullName); exit 1 } }; exit 0"
+if errorlevel 1 goto :acl_fail
 
 :: --- validate the rendered config before installing anything ---
 echo Validating the rendered config...
@@ -164,30 +191,27 @@ echo          without authentication. Re-run install.bat with PROMETHEUS_ALLOW s
 :fw_done
 
 echo Installing service...
-"%INSTALL_DIR%\nssm.exe" install %SERVICE_NAME% "%INSTALL_DIR%\%EXE_NAME%"
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppParameters "-config.file=%INSTALL_DIR%\config.yml"
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% DisplayName "MSSQL Exporter"
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% Start SERVICE_AUTO_START
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\service.log"
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppStderr "%INSTALL_DIR%\service.log"
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppRotateFiles 1
+"%INSTALL_DIR%\nssm.exe" install %SERVICE_NAME% "%INSTALL_DIR%\%EXE_NAME%" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppParameters "-config.file=%INSTALL_DIR%\config.yml" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% DisplayName "MSSQL Exporter" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% Start SERVICE_AUTO_START || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\service.log" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppStderr "%INSTALL_DIR%\service.log" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppRotateFiles 1 || goto :svc_install_fail
 
 echo Starting service...
+:: nssm start's own exit code is not trusted: the check below is the real verdict
 "%INSTALL_DIR%\nssm.exe" start %SERVICE_NAME%
 
-timeout /t 2 >nul
-echo Checking listener on port %PORT%...
-netstat -ano | findstr :%PORT%
-if errorlevel 1 (
-    echo.
-    echo WARNING: nothing is listening on %PORT%. The service may have failed to
-    echo start - check the database reachability, the config and the log:
-    echo    "%INSTALL_DIR%\nssm.exe" status %SERVICE_NAME%
-    echo    type "%INSTALL_DIR%\service.log"
-)
+:: NSSM reports the service as Running even while it keeps restarting a crashing
+:: exporter (e.g. a bad config), so also require a listener on the port.
+echo Waiting for %SERVICE_NAME% to listen on port %PORT% ...
+powershell -NoProfile -Command "$tcp=[bool](Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue); for ($i=0; $i -lt 30; $i++) { $s=Get-Service -Name '%SERVICE_NAME%' -ErrorAction SilentlyContinue; if ($s -and $s.Status -eq 'Running') { if (-not $tcp) { exit 0 }; if (Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue) { exit 0 } }; Start-Sleep -Milliseconds 500 }; exit 1"
+if errorlevel 1 goto :svc_start_fail
 
 echo.
-echo Done. Verify at http://localhost:%PORT%/ on this PC.
+echo Done. %SERVICE_NAME% is running and listening on port %PORT%.
+echo Verify at http://localhost:%PORT%/ on this PC.
 echo Install path: %INSTALL_DIR%
 echo Config (holds the SQL login): %INSTALL_DIR%\config.yml
 pause
@@ -196,10 +220,37 @@ exit /b 0
 
 :copy_fail
 echo ERROR: copying files into %INSTALL_DIR% failed. Install aborted.
+echo        If a file is in use, find the process with resmon.exe (CPU tab, Associated Handles).
 goto :fail
 
 :hash_fail
 echo ERROR: SHA-256 check failed or entry missing in SHA256SUMS. Install aborted, service not installed.
+goto :fail
+
+:svc_remove_fail
+echo ERROR: the existing %SERVICE_NAME% service could not be removed. It may be "marked for deletion":
+echo        close every Services console (services.msc), Task Manager and Event Viewer window,
+echo        then re-run install.bat. Install aborted, no files were replaced.
+goto :fail
+
+:reparse_fail
+echo ERROR: %INSTALL_DIR% is a junction or symlink. Refusing to install through it.
+echo        Remove it ^(rmdir "%INSTALL_DIR%" removes only the link^) and re-run.
+goto :fail
+
+:acl_fail
+echo ERROR: could not lock %INSTALL_DIR% down to SYSTEM and Administrators. Install aborted.
+goto :fail
+
+:svc_install_fail
+echo ERROR: nssm could not create or configure the %SERVICE_NAME% service. Install aborted.
+goto :fail
+
+:svc_start_fail
+echo ERROR: %SERVICE_NAME% is installed but is not running or not listening on port %PORT%.
+echo        Check config.yml and that the databases are reachable. Last lines of %INSTALL_DIR%\service.log:
+powershell -NoProfile -Command "if (Test-Path -LiteralPath '%INSTALL_DIR%\service.log') { Get-Content -LiteralPath '%INSTALL_DIR%\service.log' -Tail 15 } else { Write-Host '  (no service.log yet)' }"
+echo        Fix the problem, then re-run install.bat.
 goto :fail
 
 :fail
@@ -210,4 +261,13 @@ exit /b 1
 :: usage: call :verify_hash <name in SHA256SUMS> <file to check>  (exit 0 = match)
 :verify_hash
 powershell -NoProfile -Command "$l=Get-Content -LiteralPath '%SUMS%' | Where-Object { $_ -match ('^[0-9a-fA-F]{64}\s+\*?' + [regex]::Escape('%~1') + '\s*$') } | Select-Object -First 1; if (-not $l) { exit 2 }; $e=($l -split '\s+')[0].ToLower(); $h=(Get-FileHash -Algorithm SHA256 -LiteralPath '%~2').Hash.ToLower(); if ($e -eq $h) { exit 0 } else { exit 1 }"
+exit /b %errorlevel%
+
+:: usage: call :remove_service  (exit 0 = service gone and its processes ended)
+:: Stops the service and waits for STOPPED, deletes it, ends any leftover
+:: nssm/exporter process running from %INSTALL_DIR% (only those - other NSSM
+:: services are left alone), then waits up to 10 s for the deletion to complete.
+:: Does not use %INSTALL_DIR%\nssm.exe, so it works when that file is missing or locked.
+:remove_service
+powershell -NoProfile -Command "$n='%SERVICE_NAME%'; $s=Get-Service -Name $n -ErrorAction SilentlyContinue; if ($s) { if ($s.Status -ne 'Stopped') { Stop-Service -Name $n -Force -ErrorAction SilentlyContinue; try { $s.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20)) } catch {} }; & sc.exe delete $n | Out-Null }; $p=@(Get-Process -Name 'nssm','%PROC_NAME%' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '%INSTALL_DIR%\*' }); if ($p.Count) { $p | Stop-Process -Force -ErrorAction SilentlyContinue; $p | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue }; for ($i=0; $i -lt 20; $i++) { if (-not (Get-Service -Name $n -ErrorAction SilentlyContinue)) { exit 0 }; Start-Sleep -Milliseconds 500 }; exit 1"
 exit /b %errorlevel%

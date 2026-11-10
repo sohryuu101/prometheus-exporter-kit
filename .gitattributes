@@ -1,0 +1,4 @@
+# cmd.exe needs CRLF in batch files or goto/call :labels break. -text stores the bytes
+# as-is, so raw.githubusercontent.com also serves CRLF (eol=crlf would store LF).
+*.bat -text
+*.cmd -text
