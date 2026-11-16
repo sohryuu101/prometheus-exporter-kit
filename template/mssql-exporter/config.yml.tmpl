@@ -187,13 +187,17 @@ collectors:
 
       - metric_name: mssql_slow_running_queries
         type: gauge
-        help: Count of currently executing requests running longer than 5 seconds
+        help: User requests running longer than 5s by status, excluding background tasks and parked waits
+        key_labels: [status]
         values: [slow_count]
         query: |
-          SELECT COUNT(*) AS slow_count
+          SELECT status, COUNT(*) AS slow_count
           FROM sys.dm_exec_requests
-          WHERE session_id > 50
-            AND DATEDIFF(SECOND, start_time, GETDATE()) > 5
+          WHERE status <> 'background'
+            AND total_elapsed_time > 5000
+            AND command NOT IN ('WAITFOR', 'RECEIVE', 'BROKER_RECEIVE', 'TRACE', 'SLEEP')
+            AND session_id <> @@SPID
+          GROUP BY status
 
 jobs:
   - job_name: mssql_targets
