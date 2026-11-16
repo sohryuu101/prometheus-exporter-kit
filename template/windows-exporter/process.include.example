@@ -1,0 +1,1 @@
+(?i)^(scadaserver|wasserver|rose[a-z]*|nginx|netdata|blackbox_exporter|sqlservr)(\.exe)?$

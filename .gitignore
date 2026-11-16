@@ -19,6 +19,9 @@ template/blackbox-exporter-windows/blackbox_exporter.exe
 template/*/vars.env
 template/snmp-exporter/snmp.local.yml
 
+# Per-deployment process filter for the Windows exporter kit (copy the example)
+template/windows-exporter/process.include
+
 # Switch probe reports: full configs, local users and SNMP communities
 probe_output*.txt
 HUAWEI_*.log

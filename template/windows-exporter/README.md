@@ -22,6 +22,62 @@ same package works on every PC; no site values are needed.
 
 Remove with `uninstall.bat` (as administrator); it also deletes the firewall rule. Files in `C:\WindowsExporter` are left.
 
+## Per-process CPU and memory (optional)
+
+The kit is vendor-neutral by default: with no extra files, `install.bat` configures
+the exporter with its upstream default collector set and passes no
+`--collectors.enabled` flag.
+
+To add per-process CPU/memory metrics, put a file named `process.include` next to
+`install.bat` before running it. Its first line is a Go regexp matched against
+process names; when the file exists the installer enables the `process` collector
+and passes that regexp as the filter:
+
+```
+--collectors.enabled=cpu,cs,logical_disk,net,os,physical_disk,service,system,textfile,process
+--collector.process.include=<first line of process.include>
+```
+
+`process.include.example` holds a regexp for the SPX warehouse (WCS) stack — copy
+it on those PCs:
+
+```powershell
+Copy-Item process.include.example process.include
+```
+
+Leave the file out everywhere else and the kit behaves as it did before.
+`--collectors.enabled` replaces the default collector set rather than adding to
+it, which is why `install.bat` re-lists every 0.25.1 default when it turns
+`process` on. `process.include` is gitignored: it is a per-deployment file, not
+part of the kit.
+
+Keep the regexp narrow: unfiltered, the process collector emits a metric set for
+every process on the PC, which bloats the series count and every scrape. Add
+names to the alternation for other vendors; the trailing `(\.exe)?` covers both
+`nginx` and `nginx.exe`.
+
+Verify on the PC after installing (either shell):
+
+```powershell
+curl.exe -s http://localhost:9182/metrics | findstr windows_process
+```
+
+```powershell
+(Invoke-WebRequest http://localhost:9182/metrics).Content -split "`n" |
+  Select-String 'windows_process'
+```
+
+Expected: metrics in the `windows_process_*` family — a CPU-time counter plus one
+or more memory gauges. Exact suffixes vary between windows_exporter releases;
+take the names from this output rather than from documentation written for a
+different version. If nothing appears, the regexp matched no running process —
+check the actual image names in Task Manager (Details tab) and adjust the
+`process.include` file.
+
+Watch scrape cost: if your scrape job uses a 15s timeout, confirm
+`scrape_duration_seconds` stays well below it after enabling the collector; if it
+approaches the timeout, narrow the regexp.
+
 ## Security notes
 What `install.bat` now does:
 - **Install folder is locked down.** `C:\WindowsExporter` is created, its owner set to

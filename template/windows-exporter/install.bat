@@ -15,6 +15,16 @@ set SRC_DIR=%~dp0
 set SUMS=%INSTALL_DIR%\SHA256SUMS
 set FW_RULE=%SERVICE_NAME% (Prometheus only)
 
+:: Optional: a file named "process.include" next to this script enables per-process
+:: CPU/memory metrics. Its first line is a Go regexp matched against process names
+:: (see process.include.example). Without the file the exporter keeps its upstream
+:: default collector set, so the kit stays vendor-neutral.
+set "PROCESS_INCLUDE="
+if exist "%SRC_DIR%process.include" for /f "usebackq delims=" %%A in ("%SRC_DIR%process.include") do if not defined PROCESS_INCLUDE set "PROCESS_INCLUDE=%%A"
+:: windows_exporter 0.25.1 defaults; --collectors.enabled REPLACES them, so
+:: enabling "process" requires listing all of them again.
+set "DEFAULT_COLLECTORS=cpu,cs,logical_disk,net,os,physical_disk,service,system,textfile"
+
 echo ============================================
 echo Windows Exporter Standard Install
 echo ============================================
@@ -148,8 +158,12 @@ echo          without authentication. Re-run install.bat with PROMETHEUS_ALLOW s
 :fw_done
 
 echo Installing service...
+set "PARAMS=--web.listen-address=:%PORT%"
+if defined PROCESS_INCLUDE set "PARAMS=%PARAMS% --collectors.enabled=%DEFAULT_COLLECTORS%,process --collector.process.include=%PROCESS_INCLUDE%"
+if defined PROCESS_INCLUDE echo Per-process metrics: enabled
+if not defined PROCESS_INCLUDE echo Per-process metrics: disabled (no process.include file)
 "%INSTALL_DIR%\nssm.exe" install %SERVICE_NAME% "%INSTALL_DIR%\windows_exporter.exe" || goto :svc_install_fail
-"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppParameters "--web.listen-address=:%PORT%" || goto :svc_install_fail
+"%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppParameters "%PARAMS%" || goto :svc_install_fail
 "%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% DisplayName "Windows Exporter" || goto :svc_install_fail
 "%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% Start SERVICE_AUTO_START || goto :svc_install_fail
 "%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\service.log" || goto :svc_install_fail
