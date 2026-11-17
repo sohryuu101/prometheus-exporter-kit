@@ -17,10 +17,27 @@ set FW_RULE=%SERVICE_NAME% (Prometheus only)
 
 :: Optional: a file named "process.include" next to this script enables per-process
 :: CPU/memory metrics. Its first line is a Go regexp matched against process names
-:: (see process.include.example). Without the file the exporter keeps its upstream
-:: default collector set, so the kit stays vendor-neutral.
+:: (see process.include.example). Read through PowerShell so a UTF-8/UTF-16 BOM -
+:: which PowerShell's Set-Content/Out-File add by default - cannot corrupt the
+:: regexp. Without the file the exporter keeps its upstream default collector set,
+:: so the kit stays vendor-neutral.
 set "PROCESS_INCLUDE="
-if exist "%SRC_DIR%process.include" for /f "usebackq delims=" %%A in ("%SRC_DIR%process.include") do if not defined PROCESS_INCLUDE set "PROCESS_INCLUDE=%%A"
+if exist "%SRC_DIR%process.include.txt" if not exist "%SRC_DIR%process.include" (
+    echo ERROR: found process.include.txt - rename it to process.include ^(no .txt^).
+    goto :fail
+)
+if not exist "%SRC_DIR%process.include" goto :include_done
+set "INCLUDE_FILE=%SRC_DIR%process.include"
+set "INCLUDE_OUT=%TEMP%\proc-include.%RANDOM%%RANDOM%.txt"
+powershell -NoProfile -Command "$p=(Get-Content -LiteralPath $env:INCLUDE_FILE | Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } | Select-Object -First 1); if (-not $p) { Write-Host 'process.include has no non-comment content'; exit 1 }; $p=$p.Trim(); if ($p.Length -gt 900) { Write-Host 'the regexp in process.include is longer than 900 characters'; exit 1 }; if ($p.ToCharArray() | Where-Object { [int]$_ -gt 126 }) { Write-Host 'process.include must be plain ASCII'; exit 1 }; if ($p.IndexOfAny([char[]]@(32,9,34,37,33,38,60,62,59)) -ge 0) { Write-Host 'process.include must not contain spaces, tabs, quotes, percent, !, amp, <, > or ;'; exit 1 }; try { $null=[regex]$p } catch { Write-Host ('process.include is not a valid regex: ' + $_.Exception.Message); exit 1 }; [IO.File]::WriteAllText($env:INCLUDE_OUT, $p)"
+if errorlevel 1 (
+    echo ERROR: invalid process.include - see the message above.
+    goto :fail
+)
+set /p PROCESS_INCLUDE=<"%INCLUDE_OUT%"
+del /q "%INCLUDE_OUT%" >nul 2>&1
+:include_done
+
 :: windows_exporter 0.25.1 defaults; --collectors.enabled REPLACES them, so
 :: enabling "process" requires listing all of them again.
 set "DEFAULT_COLLECTORS=cpu,cs,logical_disk,net,os,physical_disk,service,system,textfile"
@@ -75,9 +92,30 @@ if errorlevel 1 (
 :: ---- remove an earlier install's service before replacing its files ----
 :: A running service keeps nssm.exe and the exporter exe open, so neither could be
 :: replaced. This does not depend on the installed nssm.exe being present or usable.
+
+:: Re-running without process.include silently turns per-process metrics off unless
+:: this is pointed out. The installed service's AppParameters live in the registry,
+:: so the check works even when the installed nssm.exe is missing or locked.
+if defined PROCESS_INCLUDE goto :proc_ok
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\%SERVICE_NAME%\Parameters" /v AppParameters 2>nul | findstr /C:"--collector.process.include" >nul
+if errorlevel 1 goto :proc_ok
+echo WARNING: the installed %SERVICE_NAME% service has per-process metrics ENABLED,
+echo          but there is no process.include file next to this install.bat.
+echo          Continuing turns them OFF. Copy process.include here and re-run.
+choice /C YN /N /D N /T 30 /M "Turn per-process metrics OFF? (Y = yes, N = abort) "
+if errorlevel 2 goto :guard_abort
+if errorlevel 1 goto :proc_ok
+:guard_abort
+echo Aborted. Nothing was changed.
+pause
+exit /b 1
+:proc_ok
+
+sc query %SERVICE_NAME% >nul 2>&1 && set SVC_EXISTED=1
 echo Removing any existing %SERVICE_NAME% service ...
 call :remove_service
 if errorlevel 1 goto :svc_remove_fail
+if defined SVC_EXISTED set SVC_REMOVED=1
 
 :: ---- lock the install folder BEFORE anything is copied into it ----
 echo Creating install folder %INSTALL_DIR% ...
@@ -161,6 +199,9 @@ echo Installing service...
 set "PARAMS=--web.listen-address=:%PORT%"
 if defined PROCESS_INCLUDE set "PARAMS=%PARAMS% --collectors.enabled=%DEFAULT_COLLECTORS%,process --collector.process.include=%PROCESS_INCLUDE%"
 if defined PROCESS_INCLUDE echo Per-process metrics: enabled
+:: "set VAR" prints name=value safely; echoing the value directly would let the
+:: regex's ^( | ) be parsed by cmd as redirection/pipeline characters.
+if defined PROCESS_INCLUDE set PROCESS_INCLUDE
 if not defined PROCESS_INCLUDE echo Per-process metrics: disabled (no process.include file)
 "%INSTALL_DIR%\nssm.exe" install %SERVICE_NAME% "%INSTALL_DIR%\windows_exporter.exe" || goto :svc_install_fail
 "%INSTALL_DIR%\nssm.exe" set %SERVICE_NAME% AppParameters "%PARAMS%" || goto :svc_install_fail
@@ -217,6 +258,7 @@ echo ERROR: nssm could not create or configure the %SERVICE_NAME% service. Insta
 goto :fail
 
 :svc_start_fail
+set NEW_SVC_INSTALLED=1
 echo ERROR: %SERVICE_NAME% is installed but is not running or not listening on port %PORT%.
 echo        Check the AppParameters and the log. Last lines of %INSTALL_DIR%\service.log:
 powershell -NoProfile -Command "if (Test-Path -LiteralPath '%INSTALL_DIR%\service.log') { Get-Content -LiteralPath '%INSTALL_DIR%\service.log' -Tail 15 } else { Write-Host '  (no service.log yet)' }"
@@ -224,6 +266,8 @@ echo        Fix the problem, then re-run install.bat.
 goto :fail
 
 :fail
+if defined SVC_REMOVED if not defined NEW_SVC_INSTALLED echo WARNING: the previous service was already removed, so this PC currently has NO exporter.
+if defined SVC_REMOVED if not defined NEW_SVC_INSTALLED echo          Fix the error above, then re-run install.bat.
 pause
 endlocal
 exit /b 1

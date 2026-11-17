@@ -7,7 +7,8 @@ same package works on every PC; no site values are needed.
 ## Contents
 - `windows_exporter-0.25.1-amd64.exe` — identical to the upstream prometheus-community release (not committed; stage it)
 - `nssm.exe` — NSSM 2.24 win64 (public domain, from nssm.cc)
-- `install.bat` / `uninstall.bat` — run as Administrator
+- `install.bat` / `uninstall.bat` / `apply-config.bat` — run as Administrator
+- `process.include.example` — sample per-process filter (see below)
 - `SHA256SUMS` — hashes of both executables; `install.bat` checks the copied files against it (manual check: `certutil -hashfile <file> SHA256`)
 
 ## Flow
@@ -22,6 +23,10 @@ same package works on every PC; no site values are needed.
 
 Remove with `uninstall.bat` (as administrator); it also deletes the firewall rule. Files in `C:\WindowsExporter` are left.
 
+To change the configuration later (add, edit or remove `process.include`), run
+`apply-config.bat` — not `install.bat`. It rewrites the service parameters and
+restarts the service without copying files or reinstalling anything (see below).
+
 ## Per-process CPU and memory (optional)
 
 The kit is vendor-neutral by default: with no extra files, `install.bat` configures
@@ -29,9 +34,9 @@ the exporter with its upstream default collector set and passes no
 `--collectors.enabled` flag.
 
 To add per-process CPU/memory metrics, put a file named `process.include` next to
-`install.bat` before running it. Its first line is a Go regexp matched against
-process names; when the file exists the installer enables the `process` collector
-and passes that regexp as the filter:
+`install.bat` before running it. The first line that is neither blank nor a `#`
+comment is a Go regexp matched against process names; when the file exists the
+installer enables the `process` collector and passes that regexp as the filter:
 
 ```
 --collectors.enabled=cpu,cs,logical_disk,net,os,physical_disk,service,system,textfile,process
@@ -50,6 +55,16 @@ Leave the file out everywhere else and the kit behaves as it did before.
 it, which is why `install.bat` re-lists every 0.25.1 default when it turns
 `process` on. `process.include` is gitignored: it is a per-deployment file, not
 part of the kit.
+
+The regexp line is read through PowerShell, so the file may be saved as UTF-8 or
+UTF-16, with or without a BOM, and blank lines and `#` comments above it are
+ignored. A file named `process.include.txt` (Notepad's hidden extensions) is
+rejected with an error instead of being ignored, and a re-run without the file
+asks Y/N before it turns the collector off. The value must be plain ASCII, under
+900 characters, and must not contain spaces, quotes, `%`, `!`, `&`, `<`, `>` or
+`;` — those would break cmd quoting or be truncated. The regexp is compiled
+before use, so a typo fails at install time rather than silently producing no
+metrics.
 
 Keep the regexp narrow: unfiltered, the process collector emits a metric set for
 every process on the PC, which bloats the series count and every scrape. Add
@@ -77,6 +92,23 @@ check the actual image names in Task Manager (Details tab) and adjust the
 Watch scrape cost: if your scrape job uses a 15s timeout, confirm
 `scrape_duration_seconds` stays well below it after enabling the collector; if it
 approaches the timeout, narrow the regexp.
+
+## Changing configuration without reinstalling
+
+`install.bat` removes and recreates the service. That is right for a first install
+or a version upgrade, but it is heavier than a configuration change needs to be.
+
+For configuration only, run `apply-config.bat` as administrator. It reads
+`process.include`, rewrites the service's `AppParameters` in the registry,
+restarts the service through the Service Control Manager, and verifies that the
+port is listening. No file is copied and the service is not deleted, so none of
+the file-lock or "marked for deletion" failure modes of a reinstall apply.
+
+- Run it twice with the same `process.include`: same result, one restart each time.
+- Delete `process.include` and run it: per-process metrics are turned off.
+- If the new configuration does not come up, it restores the previous
+  `AppParameters`, restarts the service, and prints the tail of `service.log`.
+- It refuses to run when the service is not installed; use `install.bat` first.
 
 ## Security notes
 What `install.bat` now does:
