@@ -28,7 +28,7 @@ foreach ($pc in $Targets) {
         $session = New-PSSession -ComputerName $pc -Credential $cred -ErrorAction Stop
 
         # unique staging folder, locked down BEFORE the kit is copied in
-        $stage = Invoke-Command -Session $session -ScriptBlock {
+        $stage = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
             $dir = Join-Path $env:WINDIR ("Temp\BlackboxKit-" + [guid]::NewGuid().ToString("N"))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             # SIDs: S-1-5-18 = SYSTEM, S-1-5-32-544 = Administrators
@@ -51,7 +51,7 @@ foreach ($pc in $Targets) {
         Copy-Item -Path "$KitPath\*" -Destination $stage -ToSession $session -Recurse -Force
 
         Write-Host "Running install.bat remotely ..."
-        Invoke-Command -Session $session -ArgumentList $stage, $PrometheusAllow -ScriptBlock {
+        Invoke-Command -Session $session -ArgumentList $stage, $PrometheusAllow -ErrorAction Stop -ScriptBlock {
             param($dir, $allow)
             $env:PROMETHEUS_ALLOW = $allow
             Set-Location $dir
